@@ -1,121 +1,81 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { PackageOpen, ShoppingCart, TrendingUp, Trash2, ArrowRightLeft, DollarSign, Package, Loader2 } from 'lucide-react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, onSnapshot, addDoc, deleteDoc, updateDoc, doc } from 'firebase/firestore';
-
-// --- CONFIGURAZIONE DATABASE CLOUD AUTOMATICA ---
-const firebaseConfig = JSON.parse(__firebase_config);
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+import { PackageOpen, ShoppingCart, TrendingUp, Trash2, ArrowRightLeft, DollarSign, Package } from 'lucide-react';
 
 export default function App() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [purchases, setPurchases] = useState([]);
-  const [items, setItems] = useState([]);
+  // Stati per i dati (inizializzati dal localStorage se presente)
+  const [purchases, setPurchases] = useState(() => {
+    const saved = localStorage.getItem('vinted_purchases');
+    return saved ? JSON.parse(saved) : [];
+  });
+  
+  const [items, setItems] = useState(() => {
+    const saved = localStorage.getItem('vinted_items');
+    return saved ? JSON.parse(saved) : [];
+  });
 
+  // Stati dei form
   const [purchaseForm, setPurchaseForm] = useState({ desc: '', costN: '', costV: '', costFN: '', costFV: '' });
   const [itemForm, setItemForm] = useState({ desc: '', seller: 'Nessuno', price: '', status: 'Da listare' });
 
-  // 1. Autenticazione invisibile (Necessaria per salvare i dati)
+  // Sincronizza lo stato con il localStorage ogni volta che cambia
   useEffect(() => {
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (error) {
-        console.error("Errore di autenticazione:", error);
-      }
-    };
-    initAuth();
+    localStorage.setItem('vinted_purchases', JSON.stringify(purchases));
+  }, [purchases]);
 
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  // 2. Sincronizzazione Dati in Tempo Reale
   useEffect(() => {
-    if (!user) return;
+    localStorage.setItem('vinted_items', JSON.stringify(items));
+  }, [items]);
 
-    // Connessione alla tabella "Acquisti" (Pubblica per voi due)
-    const pRef = collection(db, 'artifacts', appId, 'public', 'data', 'purchases');
-    const unsubPurchases = onSnapshot(pRef, (snap) => {
-      const pData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      pData.sort((a, b) => b.createdAt - a.createdAt); 
-      setPurchases(pData);
-    }, (err) => console.error("Errore lettura acquisti", err));
-
-    // Connessione alla tabella "Articoli"
-    const iRef = collection(db, 'artifacts', appId, 'public', 'data', 'items');
-    const unsubItems = onSnapshot(iRef, (snap) => {
-      const iData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      iData.sort((a, b) => b.createdAt - a.createdAt);
-      setItems(iData);
-      setLoading(false); 
-    }, (err) => {
-      console.error("Errore lettura articoli", err);
-      setLoading(false);
-    });
-
-    return () => {
-      unsubPurchases();
-      unsubItems();
-    };
-  }, [user]);
-
-  // --- FUNZIONI DI SALVATAGGIO ---
-  const addPurchase = async (e) => {
+  // --- FUNZIONI DI SALVATAGGIO LOCALE ---
+  const addPurchase = (e) => {
     e.preventDefault();
-    if (!purchaseForm.desc || !user) return;
+    if (!purchaseForm.desc) return;
     
-    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'purchases'), {
+    const newPurchase = {
+      id: Date.now().toString(), // ID univoco
       desc: purchaseForm.desc,
       costN: parseFloat(purchaseForm.costN) || 0,
       costV: parseFloat(purchaseForm.costV) || 0,
       costFN: parseFloat(purchaseForm.costFN) || 0,
       costFV: parseFloat(purchaseForm.costFV) || 0,
       createdAt: Date.now()
-    });
+    };
+    
+    setPurchases([newPurchase, ...purchases]);
     setPurchaseForm({ desc: '', costN: '', costV: '', costFN: '', costFV: '' });
   };
 
-  const addItem = async (e) => {
+  const addItem = (e) => {
     e.preventDefault();
-    if (!itemForm.desc || !user) return;
+    if (!itemForm.desc) return;
 
-    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'items'), {
+    const newItem = {
+      id: Date.now().toString(),
       desc: itemForm.desc,
       seller: itemForm.seller,
       price: parseFloat(itemForm.price) || 0,
       status: itemForm.status,
       createdAt: Date.now()
-    });
+    };
+
+    setItems([newItem, ...items]);
     setItemForm({ desc: '', seller: 'Nessuno', price: '', status: 'Da listare' });
   };
 
-  const deletePurchase = async (id) => {
-    if(!user) return;
-    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'purchases', id));
+  const deletePurchase = (id) => {
+    setPurchases(purchases.filter(p => p.id !== id));
   };
 
-  const deleteItem = async (id) => {
-    if(!user) return;
-    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'items', id));
+  const deleteItem = (id) => {
+    setItems(items.filter(i => i.id !== id));
   };
 
-  const updateItem = async (id, field, value) => {
-    if(!user) return;
-    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'items', id), {
-      [field]: field === 'price' ? (parseFloat(value) || 0) : value
-    });
+  const updateItem = (id, field, value) => {
+    setItems(items.map(item => 
+      item.id === id 
+        ? { ...item, [field]: field === 'price' ? (parseFloat(value) || 0) : value } 
+        : item
+    ));
   };
 
   // --- CALCOLI AUTOMATICI ---
@@ -177,15 +137,6 @@ export default function App() {
     };
   }, [purchases, items]);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center font-sans">
-        <Loader2 className="w-10 h-10 text-indigo-600 animate-spin mb-4" />
-        <p className="text-gray-500 font-medium">Connessione al server in corso...</p>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8 font-sans text-gray-800">
       <div className="max-w-7xl mx-auto space-y-6">
@@ -196,7 +147,7 @@ export default function App() {
             <PackageOpen className="w-8 h-8 text-indigo-600" />
             <div>
               <h1 className="text-2xl md:text-3xl font-extrabold text-indigo-600">Vinted Tracker</h1>
-              <p className="text-gray-500 mt-1 text-sm md:text-base">Nicolas & Veronica (Online 🟢)</p>
+              <p className="text-gray-500 mt-1 text-sm md:text-base">Nicolas & Veronica (Salvataggio Locale 💾)</p>
             </div>
           </div>
         </div>
