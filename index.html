@@ -5,23 +5,40 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tracker Vinted</title>
     
-    <!-- Tailwind CSS per la grafica -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- React & ReactDOM (librerie base) -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     
-    <!-- Babel (permettere al browser di leggere il codice React direttamente) -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore-compat.js"></script>
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans">
     <div id="root"></div>
 
     <script type="text/babel">
+        // --- INIZIALIZZAZIONE FIREBASE ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyAcXwEWZikAVW3CL12zu6cmFFSgaG9zxJ8",
+            authDomain: "c-vshop.firebaseapp.com",
+            projectId: "c-vshop",
+            storageBucket: "c-vshop.firebasestorage.app",
+            messagingSenderId: "747145838552",
+            appId: "1:747145838552:web:c3fb60a1be8cfce8317cad",
+            measurementId: "G-H29Q7QHED8"
+        };
+
+        // Inizializza l'app solo se non è già stata inizializzata
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const db = firebase.firestore();
+
         const { useState, useEffect, useMemo } = React;
 
-        // --- ICONE SVG (Sostituiscono le icone lucide-react per funzionare senza Node.js) ---
+        // --- ICONE SVG ---
         const PackageOpen = ({className}) => <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22v-9"/><path d="M15.17 2.38a2 2 0 0 0-2.34 0l-7.38 5.46a2 2 0 0 0-.74 1.48v8.32a2 2 0 0 0 1.05 1.76l6.2 3.51a2 2 0 0 0 1.9 0l6.2-3.51a2 2 0 0 0 1.05-1.76V9.32a2 2 0 0 0-.74-1.48l-7.38-5.46Z"/><path d="M20 9.5 12 14 4 9.5"/><polyline points="7.5 5.5 12 8 16.5 5.5"/></svg>;
         const Package = ({className}) => <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>;
         const ShoppingCart = ({className}) => <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>;
@@ -30,83 +47,92 @@
         const ArrowRightLeft = ({className}) => <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></svg>;
 
         function App() {
-          // Stati per i dati (inizializzati dal localStorage se presente)
-          const [purchases, setPurchases] = useState(() => {
-            const saved = localStorage.getItem('vinted_purchases');
-            return saved ? JSON.parse(saved) : [];
-          });
-          
-          const [items, setItems] = useState(() => {
-            const saved = localStorage.getItem('vinted_items');
-            return saved ? JSON.parse(saved) : [];
-          });
+          // Stati iniziali vuoti (i dati verranno caricati da Firebase)
+          const [purchases, setPurchases] = useState([]);
+          const [items, setItems] = useState([]);
 
-          // Stati dei form
           const [purchaseForm, setPurchaseForm] = useState({ desc: '', costN: '', costV: '', costFN: '', costFV: '' });
           const [itemForm, setItemForm] = useState({ desc: '', seller: 'Nessuno', price: '', status: 'Da listare' });
 
-          // Sincronizza lo stato con il localStorage ogni volta che cambia
+          // --- SINCRONIZZAZIONE IN TEMPO REALE CON FIREBASE ---
           useEffect(() => {
-            localStorage.setItem('vinted_purchases', JSON.stringify(purchases));
-          }, [purchases]);
+            // Ascolta la collezione "purchases"
+            const unsubscribePurchases = db.collection("purchases")
+              .orderBy("createdAt", "desc")
+              .onSnapshot(snapshot => {
+                const loadedPurchases = snapshot.docs.map(doc => ({
+                  id: doc.id,
+                  ...doc.data()
+                }));
+                setPurchases(loadedPurchases);
+              });
 
-          useEffect(() => {
-            localStorage.setItem('vinted_items', JSON.stringify(items));
-          }, [items]);
+            // Ascolta la collezione "items"
+            const unsubscribeItems = db.collection("items")
+              .orderBy("createdAt", "desc")
+              .onSnapshot(snapshot => {
+                const loadedItems = snapshot.docs.map(doc => ({
+                  id: doc.id,
+                  ...doc.data()
+                }));
+                setItems(loadedItems);
+              });
 
-          // --- FUNZIONI DI SALVATAGGIO LOCALE ---
-          const addPurchase = (e) => {
+            // Pulizia quando il componente viene smontato
+            return () => {
+              unsubscribePurchases();
+              unsubscribeItems();
+            };
+          }, []);
+
+          // --- FUNZIONI DI SALVATAGGIO IN CLOUD ---
+          const addPurchase = async (e) => {
             e.preventDefault();
             if (!purchaseForm.desc) return;
             
-            const newPurchase = {
-              id: Date.now().toString(), // ID univoco
+            await db.collection("purchases").add({
               desc: purchaseForm.desc,
               costN: parseFloat(purchaseForm.costN) || 0,
               costV: parseFloat(purchaseForm.costV) || 0,
               costFN: parseFloat(purchaseForm.costFN) || 0,
               costFV: parseFloat(purchaseForm.costFV) || 0,
               createdAt: Date.now()
-            };
+            });
             
-            setPurchases([newPurchase, ...purchases]);
             setPurchaseForm({ desc: '', costN: '', costV: '', costFN: '', costFV: '' });
           };
 
-          const addItem = (e) => {
+          const addItem = async (e) => {
             e.preventDefault();
             if (!itemForm.desc) return;
 
-            const newItem = {
-              id: Date.now().toString(),
+            await db.collection("items").add({
               desc: itemForm.desc,
               seller: itemForm.seller,
               price: parseFloat(itemForm.price) || 0,
               status: itemForm.status,
               createdAt: Date.now()
-            };
+            });
 
-            setItems([newItem, ...items]);
             setItemForm({ desc: '', seller: 'Nessuno', price: '', status: 'Da listare' });
           };
 
-          const deletePurchase = (id) => {
-            setPurchases(purchases.filter(p => p.id !== id));
+          const deletePurchase = async (id) => {
+            await db.collection("purchases").doc(id).delete();
           };
 
-          const deleteItem = (id) => {
-            setItems(items.filter(i => i.id !== id));
+          const deleteItem = async (id) => {
+            await db.collection("items").doc(id).delete();
           };
 
-          const updateItem = (id, field, value) => {
-            setItems(items.map(item => 
-              item.id === id 
-                ? { ...item, [field]: field === 'price' ? (parseFloat(value) || 0) : value } 
-                : item
-            ));
+          const updateItem = async (id, field, value) => {
+            const parsedValue = field === 'price' ? (parseFloat(value) || 0) : value;
+            await db.collection("items").doc(id).update({
+              [field]: parsedValue
+            });
           };
 
-          // --- CALCOLI AUTOMATICI ---
+          // --- CALCOLI AUTOMATICI (Non toccati, perfetti così) ---
           const stats = useMemo(() => {
             let totalCostN = 0; let totalCostV = 0; let totalCostFN = 0; let totalCostFV = 0;
             purchases.forEach(p => { 
@@ -135,7 +161,6 @@
             const targetN = totalCostN + (netProfit / 2);
             const targetV = totalCostV + (netProfit / 2);
 
-            // I soldi fisicamente in mano a ciascuno (Incassi Vinted - Quelli usati dal fondo per comprare nuovi pacchi)
             const heldN = revenueN - totalCostFN;
             const heldV = revenueV - totalCostFV;
 
@@ -175,7 +200,7 @@
                     <PackageOpen className="w-8 h-8 text-indigo-600" />
                     <div>
                       <h1 className="text-2xl md:text-3xl font-extrabold text-indigo-600">Vinted Tracker</h1>
-                      <p className="text-gray-500 mt-1 text-sm md:text-base">Nicolas & Veronica (Salvataggio Locale 💾 su GitHub)</p>
+                      <p className="text-gray-500 mt-1 text-sm md:text-base">Nicolas & Veronica (Sincronizzato in Cloud ☁️)</p>
                     </div>
                   </div>
                 </div>
